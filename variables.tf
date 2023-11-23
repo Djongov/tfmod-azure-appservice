@@ -24,12 +24,12 @@ variable "appserviceplan" {
 }
 
 variable "key_vault" {
-  type        = string
+  type        = optional(string)
   description = "Key Vault name for the web apps"
 }
 
 variable "log_analytics_workspace_id" {
-  type        = string
+  type        = optional(string)
   description = "Log Analytics Workspace id for the web apps"
 }
 
