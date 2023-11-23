@@ -3,11 +3,6 @@ variable "application" {
   description = "Name of the application"
 }
 
-variable "resource_group_name" {
-  type        = string
-  description = "Name of the Azure Resource Group"
-}
-
 variable "location" {
   type        = string
   description = "Location of the Azure Resource Group"
@@ -24,13 +19,13 @@ variable "appserviceplan" {
 }
 
 variable "key_vault" {
-  type        = optional(string, null)
+  type        = string
   description = "Key Vault name for the web apps"
   default     = null
 }
 
 variable "log_analytics_workspace_id" {
-  type        = optional(string)
+  type        = string
   description = "Log Analytics Workspace id for the web apps"
   default     = null
 }
@@ -45,6 +40,7 @@ variable "web_apps" {
       identity                = optional(map(string))
       custom_domain           = optional(string)
       ssl_certificate         = optional(string)
+      tags                     = optional(map(string))
   }))
   description = "Details for the Azure Web Apps"
 }

@@ -22,6 +22,7 @@ resource "azurerm_service_plan" "main" {
   resource_group_name = azurerm_resource_group.rg.name
   os_type             = var.appserviceplan["os_type"]
   sku_name            = var.appserviceplan["sku"]
+  tags = merge(local.basic_tags, { "environment" = local.workspace_name })
   depends_on          = [azurerm_resource_group.rg]
 }
 
@@ -37,14 +38,14 @@ resource "azurerm_linux_web_app" "linux_web_app" {
   #client_certificate_mode = each.value["client_certificate_mode"]
 
   site_config {
-    always_on             = each.value["site_config"]["always_on"]
-    ftps_state            = each.value["site_config"]["ftps_state"]
-    managed_pipeline_mode = each.value["site_config"]["managed_pipeline_mode"]
-    health_check_path     = each.value["site_config"]["health_check_path"]
-    http2_enabled         = each.value["site_config"]["http2_enabled"]
-    minimum_tls_version   = each.value["site_config"]["minimum_tls_version"]
-    use_32_bit_worker     = each.value["site_config"]["use_32_bit_worker"]
-  }
+    always_on             = lookup(each.value["site_config"], "always_on", null)
+    ftps_state            = lookup(each.value["site_config"], "ftps_state", null)
+    managed_pipeline_mode = lookup(each.value["site_config"], "managed_pipeline_mode", null)
+    health_check_path     = lookup(each.value["site_config"], "health_check_path", null)
+    http2_enabled         = lookup(each.value["site_config"], "http2_enabled", null)
+    minimum_tls_version   = lookup(each.value["site_config"], "minimum_tls_version", null)
+    use_32_bit_worker     = lookup(each.value["site_config"], "use_32_bit_worker", null)
+    }
   logs {
     detailed_error_messages = false
     failed_request_tracing  = false
@@ -66,6 +67,7 @@ resource "azurerm_linux_web_app" "linux_web_app" {
       type = each.value["identity"]["type"]
     }
   }
+  tags = merge(local.basic_tags, { "environment" = local.workspace_name }, each.value["tags"])
   depends_on = [azurerm_service_plan.main]
 }
 
@@ -81,14 +83,15 @@ resource "azurerm_windows_web_app" "windows_web_app" {
   app_settings = each.value["app_settings"]
 
   site_config {
-    always_on             = each.value["site_config"]["always_on"]
-    ftps_state            = each.value["site_config"]["ftps_state"]
-    managed_pipeline_mode = each.value["site_config"]["managed_pipeline_mode"]
-    health_check_path     = each.value["site_config"]["health_check_path"]
-    http2_enabled         = each.value["site_config"]["http2_enabled"]
-    minimum_tls_version   = each.value["site_config"]["minimum_tls_version"]
-    use_32_bit_worker     = each.value["site_config"]["use_32_bit_worker"]
-  }
+    always_on             = lookup(each.value["site_config"], "always_on", null)
+    ftps_state            = lookup(each.value["site_config"], "ftps_state", null)
+    managed_pipeline_mode = lookup(each.value["site_config"], "managed_pipeline_mode", null)
+    health_check_path     = lookup(each.value["site_config"], "health_check_path", null)
+    http2_enabled         = lookup(each.value["site_config"], "http2_enabled", null)
+    minimum_tls_version   = lookup(each.value["site_config"], "minimum_tls_version", null)
+    use_32_bit_worker     = lookup(each.value["site_config"], "use_32_bit_worker", null)
+    }
+
   logs {
     detailed_error_messages = false
     failed_request_tracing  = false
@@ -110,6 +113,7 @@ resource "azurerm_windows_web_app" "windows_web_app" {
       type = each.value["identity"]["type"]
     }
   }
+  tags = merge(local.basic_tags, { "environment" = local.workspace_name }, each.value["tags"])
   depends_on = [azurerm_service_plan.main]
 }
 
