@@ -30,6 +30,18 @@ variable "log_analytics_workspace_id" {
   default     = null
 }
 
+variable "mysql" {
+    type = object({
+        name = optional(string)
+        database_name = optional(string)
+        sku = optional(string)
+        version = optional(string)
+        username = optional(string)
+        password = optional(string)
+        size = optional(number)
+    })
+}
+
 variable "web_apps" {
   type = map(object(
     {
@@ -37,10 +49,14 @@ variable "web_apps" {
       client_affinity_enabled = optional(bool)
       app_settings            = optional(map(string))
       site_config             = optional(map(string))
-      identity                = optional(map(string))
+      identity = optional(object({
+            type         = string
+            identity_ids = list(string)
+        }))
       custom_domain           = optional(string)
       ssl_certificate         = optional(string)
-      tags                     = optional(map(string))
+      tags                    = optional(map(string))
+      app_command_line        = optional(string)
   }))
   description = "Details for the Azure Web Apps"
 }
