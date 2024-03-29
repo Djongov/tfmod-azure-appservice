@@ -55,6 +55,7 @@ variable "web_apps" {
         }))
       custom_domain           = optional(string)
       ssl_certificate         = optional(string)
+      ssl_service_managed_certificate = optional(bool)
       tags                    = optional(map(string))
       app_command_line        = optional(string)
   }))

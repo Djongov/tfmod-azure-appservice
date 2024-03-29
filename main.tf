@@ -150,57 +150,91 @@ resource "azurerm_app_service_custom_hostname_binding" "windows_webapp" {
   app_service_name    = azurerm_windows_web_app.windows_web_app[each.key].name
 }
 
-# Key Vault Certificate only if key_vault_provider and ssl_certificate is passed
-data "azurerm_key_vault_secret" "certificate" {
-  for_each     = { for k, v in var.web_apps : k => v if v["ssl_certificate"] != null }
-  name         = each.value["ssl_certificate"]
-  key_vault_id = var.key_vault
+# ================================================================ App Service Managed SSL ================================================================
+
+# For Linux
+resource "azurerm_app_service_managed_certificate" "linux_webapp" {
+  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Linux" && v.ssl_service_managed_certificate != null }
+
+  custom_hostname_binding_id = azurerm_app_service_custom_hostname_binding.linux_webapp[each.key].id
 }
 
+# For Windows
+resource "azurerm_app_service_managed_certificate" "windows_webapp" {
+  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Windows" && v.ssl_service_managed_certificate != null }
 
-# Key Vault Access for Linux Apps
-resource "azurerm_role_assignment" "assign-access-to-key-vault-linux" {
-for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Linux" }
-  principal_id         = azurerm_linux_web_app.linux_web_app[each.key].identity[0].principal_id
-  role_definition_name    = "Key Vault Certificates Officer"
-  scope                   = var.key_vault
+  custom_hostname_binding_id = azurerm_app_service_custom_hostname_binding.windows_webapp[each.key].id
 }
 
-# Key Vault Access for Windows Apps
-resource "azurerm_role_assignment" "assign-access-to-key-vault-windows" {
-for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Windows" }
-  principal_id         = azurerm_windows_web_app.windows_web_app[each.key].identity[0].principal_id
-  role_definition_name    = "Key Vault Certificates Officer"
-  scope                   = var.key_vault
-}
+# For Linux
+resource "azurerm_app_service_certificate_binding" "linux_webapp" {
+  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Linux" && v.ssl_service_managed_certificate != null }
 
-# Web app Certificate from Key Vault
-resource "azurerm_app_service_certificate" "certificate" {
-  for_each            = { for k, v in var.web_apps : k => v if v["ssl_certificate"] != null }
-  name                = "webapp-certificate"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  pfx_blob            = data.azurerm_key_vault_secret.certificate[each.key].value
-}
-
-# SSL binding for Linux Web Apps
-resource "azurerm_app_service_certificate_binding" "linux-binding" {
-  #for each web app that has custom domain
-  for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Linux" }
   hostname_binding_id = azurerm_app_service_custom_hostname_binding.linux_webapp[each.key].id
-  certificate_id      = azurerm_app_service_certificate.certificate[each.key].id
+  certificate_id      = azurerm_app_service_managed_certificate.linux_webapp[each.key].id
   ssl_state           = "SniEnabled"
-  depends_on = [azurerm_role_assignment.assign-access-to-key-vault-linux]
 }
-# SSL binding for Windows Web Apps
-resource "azurerm_app_service_certificate_binding" "windows-binding" {
-  #for each web app that has custom domain
-  for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Windows" }
+
+# For Windows
+resource "azurerm_app_service_certificate_binding" "windows_webapp" {
+  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Windows" && v.ssl_service_managed_certificate != null }
+
   hostname_binding_id = azurerm_app_service_custom_hostname_binding.windows_webapp[each.key].id
-  certificate_id      = azurerm_app_service_certificate.certificate[each.key].id
+  certificate_id      = azurerm_app_service_managed_certificate.windows_webapp[each.key].id
   ssl_state           = "SniEnabled"
-    depends_on = [azurerm_role_assignment.assign-access-to-key-vault-windows]
 }
+
+# Key Vault Certificate only if key_vault_provider and ssl_certificate is passed
+# data "azurerm_key_vault_secret" "certificate" {
+#   for_each     = { for k, v in var.web_apps : k => v if v["ssl_certificate"] != null }
+#   name         = each.value["ssl_certificate"]
+#   key_vault_id = var.key_vault
+# }
+
+
+# # Key Vault Access for Linux Apps
+# resource "azurerm_role_assignment" "assign-access-to-key-vault-linux" {
+# for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Linux" }
+#   principal_id         = azurerm_linux_web_app.linux_web_app[each.key].identity[0].principal_id
+#   role_definition_name    = "Key Vault Certificates Officer"
+#   scope                   = var.key_vault
+# }
+
+# # Key Vault Access for Windows Apps
+# resource "azurerm_role_assignment" "assign-access-to-key-vault-windows" {
+# for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Windows" }
+#   principal_id         = azurerm_windows_web_app.windows_web_app[each.key].identity[0].principal_id
+#   role_definition_name    = "Key Vault Certificates Officer"
+#   scope                   = var.key_vault
+# }
+
+# # Web app Certificate from Key Vault
+# resource "azurerm_app_service_certificate" "certificate" {
+#   for_each            = { for k, v in var.web_apps : k => v if v["ssl_certificate"] != null }
+#   name                = "webapp-certificate"
+#   resource_group_name = azurerm_resource_group.rg.name
+#   location            = azurerm_resource_group.rg.location
+#   pfx_blob            = data.azurerm_key_vault_secret.certificate[each.key].value
+# }
+
+# # SSL binding for Linux Web Apps
+# resource "azurerm_app_service_certificate_binding" "linux-binding" {
+#   #for each web app that has custom domain
+#   for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Linux" }
+#   hostname_binding_id = azurerm_app_service_custom_hostname_binding.linux_webapp[each.key].id
+#   certificate_id      = azurerm_app_service_certificate.certificate[each.key].id
+#   ssl_state           = "SniEnabled"
+#   depends_on = [azurerm_role_assignment.assign-access-to-key-vault-linux]
+# }
+# # SSL binding for Windows Web Apps
+# resource "azurerm_app_service_certificate_binding" "windows-binding" {
+#   #for each web app that has custom domain
+#   for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Windows" }
+#   hostname_binding_id = azurerm_app_service_custom_hostname_binding.windows_webapp[each.key].id
+#   certificate_id      = azurerm_app_service_certificate.certificate[each.key].id
+#   ssl_state           = "SniEnabled"
+#     depends_on = [azurerm_role_assignment.assign-access-to-key-vault-windows]
+# }
 
 # Linux Web App Diagnostic Settings
 resource "azurerm_monitor_diagnostic_setting" "linux_webapp" {
@@ -323,8 +357,8 @@ resource "azurerm_mysql_flexible_database" "azure-waf-manager" {
   name                = var.mysql.database_name
   resource_group_name = azurerm_resource_group.rg.name
   server_name         = azurerm_mysql_flexible_server.sunwell-mysql[0].name
-  charset             = "utf8mb3"
-  collation           = "utf8mb3_unicode_ci"
+  charset             = "utf8mb4"
+  collation           = "utf8mb4_0900_ai_ci"
   # prevent the possibility of accidental data loss
 #   lifecycle {
 #     prevent_destroy = true
