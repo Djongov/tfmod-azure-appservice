@@ -6,8 +6,61 @@ locals {
   }
   workspace_name      = terraform.workspace
   appserviceplan_name = "${var.application}-asp"
-}
+  
+  linux_web_apps_with_domains = flatten([
+    for k, v in var.web_apps : [
+      for domain, settings in (v["custom_domains"] != null ? v["custom_domains"] : {}) : {
+        app_key                = k
+        domain                 = domain
+        key_vault_certificate  = lookup(settings, "key_vault_certificate", null)
+      }
+    ] if v["custom_domains"] != null && var.app_service_plan["os_type"] == "Linux"
+  ])
 
+  windows_web_apps_with_domains = flatten([
+    for k, v in var.web_apps : [
+      for domain, settings in (v["custom_domains"] != null ? v["custom_domains"] : {}) : {
+        app_key                = k
+        domain                 = domain
+        key_vault_certificate  = lookup(settings, "key_vault_certificate", null)
+      }
+    ] if v["custom_domains"] != null && var.app_service_plan["os_type"] == "Windows"
+  ])
+
+# Filter for Linux web apps with managed certificates or Key Vault certificates
+  linux_web_apps_with_managed_certificates = flatten([
+    for app_key, app_value in var.web_apps : [
+      for domain, domain_settings in (app_value["custom_domains"] != null ? app_value["custom_domains"] : {}) :
+      {
+        app_key = app_key
+        domain  = domain
+        ssl_certificate = domain_settings
+      }
+      if (
+        (domain_settings.app_service_managed_certificate == true || 
+         domain_settings.key_vault_certificate != null) &&
+        var.app_service_plan["os_type"] == "Linux"
+      )
+    ]
+  ])
+
+  # Filter for Windows web apps with managed certificates or Key Vault certificates
+  windows_web_apps_with_managed_certificates = flatten([
+    for app_key, app_value in var.web_apps : [
+      for domain, domain_settings in (app_value["custom_domains"] != null ? app_value["custom_domains"] : {}) :
+      {
+        app_key = app_key
+        domain  = domain
+        ssl_certificate = domain_settings
+      }
+      if (
+        (domain_settings.app_service_managed_certificate == true || 
+         domain_settings.key_vault_certificate != null) &&
+        var.app_service_plan["os_type"] == "Windows"
+      )
+    ]
+  ])
+}
 
 resource "azurerm_resource_group" "rg" {
   name     = "${var.application}-${local.workspace_name}"
@@ -20,40 +73,41 @@ resource "azurerm_service_plan" "main" {
   name                = local.appserviceplan_name
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  os_type             = var.appserviceplan["os_type"]
-  sku_name            = var.appserviceplan["sku"]
+  os_type             = var.app_service_plan["os_type"]
+  sku_name            = var.app_service_plan["sku"]
   tags = merge(local.basic_tags, { "environment" = local.workspace_name })
   depends_on          = [azurerm_resource_group.rg]
-  worker_count        = var.appserviceplan["worker_count"]
+  worker_count        = var.app_service_plan["worker_count"]
 }
 
 resource "azurerm_linux_web_app" "linux_web_app" {
-  for_each                = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Linux" }
+  for_each                = { for k, v in var.web_apps : k => v if var.app_service_plan["os_type"] == "Linux" }
   name                    = "${var.application}-${each.key}"
   resource_group_name     = azurerm_resource_group.rg.name
   location                = azurerm_resource_group.rg.location
   service_plan_id         = azurerm_service_plan.main.id
-  client_affinity_enabled = each.value["client_affinity_enabled"]
+  client_affinity_enabled = lookup(each.value, "client_affinity_enabled", null)
   https_only              = each.value["https_only"]
   app_settings            = each.value["app_settings"]
   #client_certificate_mode = each.value["client_certificate_mode"]
 
   site_config {
-    always_on             = lookup(each.value["site_config"], "always_on", null)
-    ftps_state            = lookup(each.value["site_config"], "ftps_state", null)
+    always_on             = lookup(each.value["site_config"], "always_on", true)
+    ftps_state            = lookup(each.value["site_config"], "ftps_state", "FtpsOnly")
     managed_pipeline_mode = lookup(each.value["site_config"], "managed_pipeline_mode", null)
     health_check_path     = lookup(each.value["site_config"], "health_check_path", null)
-    http2_enabled         = lookup(each.value["site_config"], "http2_enabled", null)
-    minimum_tls_version   = lookup(each.value["site_config"], "minimum_tls_version", null)
-    use_32_bit_worker     = lookup(each.value["site_config"], "use_32_bit_worker", null)
+    http2_enabled         = lookup(each.value["site_config"], "http2_enabled", true)
+    minimum_tls_version   = lookup(each.value["site_config"], "minimum_tls_version", "1.2")
+    use_32_bit_worker     = lookup(each.value["site_config"], "use_32_bit_worker", false)
     app_command_line      = lookup(each.value["site_config"], "app_command_line", null)
-    container_registry_use_managed_identity = lookup(each.value["site_config"], "container_registry_use_managed_identity", null)
+    container_registry_use_managed_identity = lookup(each.value["site_config"], "container_registry_use_managed_identity", false)
+    websockets_enabled     = lookup(each.value["site_config"], "websockets_enabled", false)
     application_stack {
-      php_version = lookup(each.value["site_config"], "php_version", null)
-      java_version = lookup(each.value["site_config"], "java_version", null)
-      node_version = lookup(each.value["site_config"], "node_version", null)
-      docker_image_name = lookup(each.value["site_config"], "docker_image_name", null)
-      docker_registry_url = lookup(each.value["site_config"], "docker_registry_url", null)
+      php_version = lookup(each.value["application_stack"], "php_version", null)
+      java_version = lookup(each.value["application_stack"], "java_version", null)
+      node_version = lookup(each.value["application_stack"], "node_version", null)
+      docker_image_name   = lookup(each.value["application_stack"], "docker_image_name", null)
+      docker_registry_url = lookup(each.value["application_stack"], "docker_registry_url", null)
     }
   }
   logs {
@@ -82,7 +136,7 @@ resource "azurerm_linux_web_app" "linux_web_app" {
 }
 
 resource "azurerm_windows_web_app" "windows_web_app" {
-  for_each                = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Windows" }
+  for_each                = { for k, v in var.web_apps : k => v if var.app_service_plan["os_type"] == "Windows" }
   name                    = "${var.application}-${each.key}"
   resource_group_name     = azurerm_resource_group.rg.name
   location                = azurerm_resource_group.rg.location
@@ -137,52 +191,73 @@ resource "azurerm_windows_web_app" "windows_web_app" {
 }
 
 resource "azurerm_app_service_custom_hostname_binding" "linux_webapp" {
-  for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Linux" }
-  hostname            = each.value["custom_domain"]
+  for_each = {
+    for item in local.linux_web_apps_with_domains :
+    "${item.app_key}-${item.domain}" => item
+  }
+
+  hostname            = each.value.domain
   resource_group_name = azurerm_resource_group.rg.name
-  app_service_name    = azurerm_linux_web_app.linux_web_app[each.key].name
+  app_service_name    = azurerm_linux_web_app.linux_web_app[each.value.app_key].name
 }
 
 resource "azurerm_app_service_custom_hostname_binding" "windows_webapp" {
-  for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Windows" }
-  hostname            = each.value["custom_domain"]
+  for_each = {
+    for item in local.windows_web_apps_with_domains :
+    "${item.app_key}-${item.domain}" => item
+  }
+
+  hostname            = each.value.domain
   resource_group_name = azurerm_resource_group.rg.name
-  app_service_name    = azurerm_windows_web_app.windows_web_app[each.key].name
+  app_service_name    = azurerm_windows_web_app.windows_web_app[each.value.app_key].name
 }
 
 # ================================================================ App Service Managed SSL ================================================================
 
-# For Linux
 resource "azurerm_app_service_managed_certificate" "linux_webapp" {
-  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Linux" && v.ssl_service_managed_certificate != null }
+  for_each = {
+    for item in local.linux_web_apps_with_managed_certificates :
+    "${item.app_key}-${item.domain}" => item
+  }
 
   custom_hostname_binding_id = azurerm_app_service_custom_hostname_binding.linux_webapp[each.key].id
 }
 
-# For Windows
-resource "azurerm_app_service_managed_certificate" "windows_webapp" {
-  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Windows" && v.ssl_service_managed_certificate != null }
-
-  custom_hostname_binding_id = azurerm_app_service_custom_hostname_binding.windows_webapp[each.key].id
-}
-
-# For Linux
 resource "azurerm_app_service_certificate_binding" "linux_webapp" {
-  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Linux" && v.ssl_service_managed_certificate != null }
+  for_each = {
+    for item in local.linux_web_apps_with_managed_certificates :
+    "${item.app_key}-${item.domain}" => item
+  }
 
   hostname_binding_id = azurerm_app_service_custom_hostname_binding.linux_webapp[each.key].id
   certificate_id      = azurerm_app_service_managed_certificate.linux_webapp[each.key].id
   ssl_state           = "SniEnabled"
 }
 
-# For Windows
+resource "azurerm_app_service_managed_certificate" "windows_webapp" {
+  for_each = {
+    for item in local.windows_web_apps_with_managed_certificates :
+    "${item.app_key}-${item.domain}" => item
+  }
+
+  custom_hostname_binding_id = azurerm_app_service_custom_hostname_binding.windows_webapp[each.key].id
+}
+
 resource "azurerm_app_service_certificate_binding" "windows_webapp" {
-  for_each = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Windows" && v.ssl_service_managed_certificate != null }
+  for_each = {
+    for item in local.windows_web_apps_with_managed_certificates :
+    "${item.app_key}-${item.domain}" => item
+  }
 
   hostname_binding_id = azurerm_app_service_custom_hostname_binding.windows_webapp[each.key].id
   certificate_id      = azurerm_app_service_managed_certificate.windows_webapp[each.key].id
   ssl_state           = "SniEnabled"
 }
+
+
+# ================================================================ App Service Managed SSL ================================================================
+
+
 
 # Key Vault Certificate only if key_vault_provider and ssl_certificate is passed
 # data "azurerm_key_vault_secret" "certificate" {
@@ -194,7 +269,7 @@ resource "azurerm_app_service_certificate_binding" "windows_webapp" {
 
 # # Key Vault Access for Linux Apps
 # resource "azurerm_role_assignment" "assign-access-to-key-vault-linux" {
-# for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Linux" }
+# for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.app_service_plan["os_type"] == "Linux" }
 #   principal_id         = azurerm_linux_web_app.linux_web_app[each.key].identity[0].principal_id
 #   role_definition_name    = "Key Vault Certificates Officer"
 #   scope                   = var.key_vault
@@ -202,7 +277,7 @@ resource "azurerm_app_service_certificate_binding" "windows_webapp" {
 
 # # Key Vault Access for Windows Apps
 # resource "azurerm_role_assignment" "assign-access-to-key-vault-windows" {
-# for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Windows" }
+# for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.app_service_plan["os_type"] == "Windows" }
 #   principal_id         = azurerm_windows_web_app.windows_web_app[each.key].identity[0].principal_id
 #   role_definition_name    = "Key Vault Certificates Officer"
 #   scope                   = var.key_vault
@@ -220,7 +295,7 @@ resource "azurerm_app_service_certificate_binding" "windows_webapp" {
 # # SSL binding for Linux Web Apps
 # resource "azurerm_app_service_certificate_binding" "linux-binding" {
 #   #for each web app that has custom domain
-#   for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Linux" }
+#   for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.app_service_plan["os_type"] == "Linux" }
 #   hostname_binding_id = azurerm_app_service_custom_hostname_binding.linux_webapp[each.key].id
 #   certificate_id      = azurerm_app_service_certificate.certificate[each.key].id
 #   ssl_state           = "SniEnabled"
@@ -229,7 +304,7 @@ resource "azurerm_app_service_certificate_binding" "windows_webapp" {
 # # SSL binding for Windows Web Apps
 # resource "azurerm_app_service_certificate_binding" "windows-binding" {
 #   #for each web app that has custom domain
-#   for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.appserviceplan["os_type"] == "Windows" }
+#   for_each            = { for k, v in var.web_apps : k => v if v["custom_domain"] != null && var.app_service_plan["os_type"] == "Windows" }
 #   hostname_binding_id = azurerm_app_service_custom_hostname_binding.windows_webapp[each.key].id
 #   certificate_id      = azurerm_app_service_certificate.certificate[each.key].id
 #   ssl_state           = "SniEnabled"
@@ -238,7 +313,7 @@ resource "azurerm_app_service_certificate_binding" "windows_webapp" {
 
 # Linux Web App Diagnostic Settings
 resource "azurerm_monitor_diagnostic_setting" "linux_webapp" {
-  for_each            = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Linux" && var.log_analytics_workspace_id != null }
+  for_each            = { for k, v in var.web_apps : k => v if var.app_service_plan["os_type"] == "Linux" && var.log_analytics_workspace_id != null }
   name                = "${var.application}-${each.key}-diagnostic-settings"
   target_resource_id  = azurerm_linux_web_app.linux_web_app[each.key].id
   log_analytics_workspace_id = var.log_analytics_workspace_id
@@ -262,7 +337,7 @@ resource "azurerm_monitor_diagnostic_setting" "linux_webapp" {
 
 # Windows Web App Diagnostic Settings
 resource "azurerm_monitor_diagnostic_setting" "windows_webapp" {
-  for_each            = { for k, v in var.web_apps : k => v if var.appserviceplan["os_type"] == "Windows" && var.log_analytics_workspace_id != null }
+  for_each            = { for k, v in var.web_apps : k => v if var.app_service_plan["os_type"] == "Windows" && var.log_analytics_workspace_id != null }
   name                = "${var.application}-${each.key}-diagnostic-settings"
   target_resource_id  = azurerm_windows_web_app.windows_web_app[each.key].id
   log_analytics_workspace_id = var.log_analytics_workspace_id
