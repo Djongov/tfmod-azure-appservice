@@ -1,67 +1,3 @@
-# In main.tf of tfmod-azure-appservice module
-locals {
-  basic_tags = {
-    managed-by  = "terraform"
-    application = lower(var.application)
-  }
-  workspace_name      = terraform.workspace
-  appserviceplan_name = "${var.application}-asp"
-  
-  linux_web_apps_with_domains = flatten([
-    for k, v in var.web_apps : [
-      for domain, settings in (v["custom_domains"] != null ? v["custom_domains"] : {}) : {
-        app_key                = k
-        domain                 = domain
-        key_vault_certificate  = lookup(settings, "key_vault_certificate", null)
-      }
-    ] if v["custom_domains"] != null && var.app_service_plan["os_type"] == "Linux"
-  ])
-
-  windows_web_apps_with_domains = flatten([
-    for k, v in var.web_apps : [
-      for domain, settings in (v["custom_domains"] != null ? v["custom_domains"] : {}) : {
-        app_key                = k
-        domain                 = domain
-        key_vault_certificate  = lookup(settings, "key_vault_certificate", null)
-      }
-    ] if v["custom_domains"] != null && var.app_service_plan["os_type"] == "Windows"
-  ])
-
-# Filter for Linux web apps with managed certificates or Key Vault certificates
-  linux_web_apps_with_managed_certificates = flatten([
-    for app_key, app_value in var.web_apps : [
-      for domain, domain_settings in (app_value["custom_domains"] != null ? app_value["custom_domains"] : {}) :
-      {
-        app_key = app_key
-        domain  = domain
-        ssl_certificate = domain_settings
-      }
-      if (
-        (domain_settings.app_service_managed_certificate == true || 
-         domain_settings.key_vault_certificate != null) &&
-        var.app_service_plan["os_type"] == "Linux"
-      )
-    ]
-  ])
-
-  # Filter for Windows web apps with managed certificates or Key Vault certificates
-  windows_web_apps_with_managed_certificates = flatten([
-    for app_key, app_value in var.web_apps : [
-      for domain, domain_settings in (app_value["custom_domains"] != null ? app_value["custom_domains"] : {}) :
-      {
-        app_key = app_key
-        domain  = domain
-        ssl_certificate = domain_settings
-      }
-      if (
-        (domain_settings.app_service_managed_certificate == true || 
-         domain_settings.key_vault_certificate != null) &&
-        var.app_service_plan["os_type"] == "Windows"
-      )
-    ]
-  ])
-}
-
 resource "azurerm_resource_group" "rg" {
   name     = "${var.application}-${local.workspace_name}"
   location = var.location
@@ -92,16 +28,17 @@ resource "azurerm_linux_web_app" "linux_web_app" {
   #client_certificate_mode = each.value["client_certificate_mode"]
 
   site_config {
-    always_on             = lookup(each.value["site_config"], "always_on", true)
-    ftps_state            = lookup(each.value["site_config"], "ftps_state", "FtpsOnly")
-    managed_pipeline_mode = lookup(each.value["site_config"], "managed_pipeline_mode", null)
-    health_check_path     = lookup(each.value["site_config"], "health_check_path", null)
-    http2_enabled         = lookup(each.value["site_config"], "http2_enabled", true)
-    minimum_tls_version   = lookup(each.value["site_config"], "minimum_tls_version", "1.2")
-    use_32_bit_worker     = lookup(each.value["site_config"], "use_32_bit_worker", false)
-    app_command_line      = lookup(each.value["site_config"], "app_command_line", null)
-    container_registry_use_managed_identity = lookup(each.value["site_config"], "container_registry_use_managed_identity", false)
-    websockets_enabled     = lookup(each.value["site_config"], "websockets_enabled", false)
+    always_on                               = can(each.value.site_config["always_on"] != null) ? each.value.site_config["always_on"] : true
+    worker_count                            = can(each.value.site_config["worker_count"] != null) ? each.value.site_config["worker_count"] : 1
+    ftps_state                              = can(each.value.site_config["ftps_state"] != null) ? each.value.site_config["ftps_state"] : "Disabled"
+    local_mysql_enabled                     = can(each.value.site_config["local_mysql_enabled"] != null) ? each.value.site_config["local_mysql_enabled"] : false
+    http2_enabled                           = can(each.value.site_config["http2_enabled"] != null) ? each.value.site_config["http2_enabled"] : true
+    health_check_path                       = can(each.value.site_config["health_check_path"] != null) ? each.value.site_config["health_check_path"] : null
+    use_32_bit_worker                       = can(each.value.site_config["use_32_bit_worker"] != null) ? each.value.site_config["use_32_bit_worker"] : false
+    container_registry_use_managed_identity = can(each.value.site_config["container_registry_use_managed_identity"] != null) ? each.value.site_config["container_registry_use_managed_identity"] : true
+    app_command_line                        = can(each.value.site_config["app_command_line"] != null) ? each.value.site_config["app_command_line"] : null
+    websockets_enabled                      = can(each.value.site_config["websockets_enabled"] != null) ? each.value.site_config["websockets_enabled"] : false
+    ip_restriction_default_action           = can(each.value.site_config["ip_restriction_default_action"] != null) ? each.value.site_config["ip_restriction_default_action"] : "Allow"
     application_stack {
       php_version = lookup(each.value["application_stack"], "php_version", null)
       java_version = lookup(each.value["application_stack"], "java_version", null)
@@ -255,9 +192,61 @@ resource "azurerm_app_service_certificate_binding" "windows_webapp" {
 }
 
 
-# ================================================================ App Service Managed SSL ================================================================
+# ================================================================ App Service Key Vault Certificate SSL ================================================================
+# First fetch the key vault as data because the ID is not fetched properly any other way
+provider "azurerm" {
+  features {}
+  alias           = "keyvault"
+  subscription_id = var.key_vault_subscription_id
+}
+data "azurerm_key_vault" "linux_key_vault" {
+  for_each = {
+    for item in local.linux_web_apps_with_key_vault_certificates :
+    "${item.app_key}-${item.domain}" => item
+    if item.ssl_certificate.key_vault_certificate.certificate_name != null
+  }
 
+  name                = split("/", each.value.ssl_certificate.key_vault_certificate.key_vault_id)[8]
+  resource_group_name = split("/", each.value.ssl_certificate.key_vault_certificate.key_vault_id)[4]
+  provider           = azurerm.keyvault
+}
+data "azurerm_key_vault_secret" "linux_certificate" {
+  for_each = {
+    for item in local.linux_web_apps_with_key_vault_certificates :
+    "${item.app_key}-${item.domain}" => item
+    if item.ssl_certificate.key_vault_certificate.certificate_name != null
+  }
 
+  name         = each.value.ssl_certificate.key_vault_certificate.certificate_name
+  key_vault_id = data.azurerm_key_vault.linux_key_vault[each.key].id
+  #key_vault_id = each.value.ssl_certificate.key_vault_certificate.key_vault_id
+}
+
+resource "azurerm_app_service_certificate" "linux_app_service_certificate" {
+  for_each = {
+    for item in local.linux_web_apps_with_key_vault_certificates :
+    "${item.app_key}-${item.domain}" => item
+    if item.ssl_certificate.key_vault_certificate.certificate_name != null
+  }
+
+  name                = each.value.ssl_certificate.key_vault_certificate.certificate_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  pfx_blob = data.azurerm_key_vault_secret.linux_certificate[each.key].value
+}
+
+resource "azurerm_app_service_certificate_binding" "linux_key_vault_certificate" {
+  for_each = {
+    for item in local.linux_web_apps_with_key_vault_certificates :
+    "${item.app_key}-${item.domain}" => item
+    if item.ssl_certificate.key_vault_certificate.certificate_name != null
+  }
+
+  hostname_binding_id = azurerm_app_service_custom_hostname_binding.linux_webapp[each.key].id
+  certificate_id      = azurerm_app_service_certificate.linux_app_service_certificate[each.key].id
+  ssl_state           = "SniEnabled"
+  depends_on = [ azurerm_app_service_certificate.linux_app_service_certificate ]
+}
 
 # Key Vault Certificate only if key_vault_provider and ssl_certificate is passed
 # data "azurerm_key_vault_secret" "certificate" {

@@ -45,7 +45,11 @@ variable "mysql" {
         size = optional(number)
     })
 }
-
+variable "key_vault_subscription_id" {
+  type        = string
+  description = "Subscription ID for the Key Vault"
+  default     = null
+}
 variable "web_apps" {
   type = map(
     object(
@@ -66,14 +70,15 @@ variable "web_apps" {
         enabled = optional(bool)
         https_only = optional(bool)
         site_config = object({
-          worker_count = optional(number)
           always_on = optional(bool)
+          worker_count = optional(number)
           ftps_state = optional(string)
           http2_enabled = optional(bool)
           health_check_path = optional(string)
           use_32_bit_worker_process = optional(bool)
           websockets_enabled = optional(bool)
           container_registry_use_managed_identity = optional(bool)
+          ip_restriction_default_action = optional(string)
           cors = optional(object({
             allowed_origins = list(string)
             support_credentials = optional(bool)
