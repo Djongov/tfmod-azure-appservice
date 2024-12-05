@@ -1,0 +1,48 @@
+repo_name: Djongov/tfmod-azure-appservice
+report_id: e019b453a750033f5e1b713a7f15ddf5
+version: 0.1
+repo_type: Public
+timestamp: '2024-03-14T15:36:03+00:00'
+requested_by: Djongov
+provider: github
+branch: main
+detected_tools_count: 3
+tools:
+- name: Git
+  description: Fast, scalable, distributed revision control system
+  website_url: http://git-scm.com/
+  open_source: true
+  hosted_saas: false
+  category: Build, Test, Deploy
+  sub_category: Version Control System
+  image_url: https://img.stackshare.io/service/1046/git.png
+  detection_source_url: https://github.com/Djongov/tfmod-azure-appservice
+  detection_source: Repo Metadata
+- name: Terraform
+  description: Describe your complete infrastructure as code and build resources across
+    providers
+  website_url: https://www.terraform.io/
+  license: MPL-2.0
+  open_source: true
+  hosted_saas: false
+  category: Build, Test, Deploy
+  sub_category: Server Configuration and Automation
+  image_url: https://img.stackshare.io/service/1276/default_2316907c4199f912e2ed79cbdb99025c9e5e2665.png
+  detection_source_url: https://github.com/Djongov/tfmod-azure-appservice/blob/main/main.tf
+  detection_source: main.tf
+  last_updated_by: Dimitar Dzhongov
+  last_updated_on: 2023-11-23 12:08:26.000000000 Z
+- name: Terraform Registry
+  description: Describe your complete infrastructure as code and build resources across
+    providers
+  website_url: https://registry.terraform.io/
+  license: MPL-2.0
+  open_source: true
+  hosted_saas: false
+  category: Build, Test, Deploy
+  sub_category: Package Managers
+  image_url: https://img.stackshare.io/package_manager/49093/default_cdf079d244bded073d455911e6ce679abb1b77ab.png
+  detection_source_url: https://github.com/Djongov/tfmod-azure-appservice/blob/main/main.tf
+  detection_source: main.tf
+  last_updated_by: Dimitar Dzhongov
+  last_updated_on: 2023-11-23 12:08:26.000000000 Z
