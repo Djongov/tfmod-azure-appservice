@@ -69,6 +69,12 @@ resource "azurerm_linux_web_app" "linux_web_app" {
     }
   }
   tags = merge(local.basic_tags, { "environment" = local.workspace_name }, each.value["tags"])
+  lifecycle {
+    ignore_changes = [
+      site_config[0].application_stack[0].docker_registry_password,
+      site_config[0].application_stack[0].docker_registry_username
+    ]
+  }
   depends_on = [azurerm_service_plan.main]
 }
 
